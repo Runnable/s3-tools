@@ -1,0 +1,129 @@
+#!/usr/bin/env node
+
+'use strict';
+
+var aws = require('aws-sdk');
+var parseArgs = require('minimist');
+var debug = require('debug')('s3-tools');
+var table = require('text-table');
+var pluck = require('101/pluck');
+
+process.title = 's3-tool';
+
+var argv = parseArgs(process.argv.slice(2));
+var action = argv._[0];
+debug(argv);
+
+var config = {};
+config.Bucket = argv.bucket || '';
+config.accessKeyId = argv['access-key'] ||
+  process.env.S3TOOLS_AWS_ACCESS_KEY || exitNoAwsCredentials();
+config.secretAccessKey = argv['secret-key'] ||
+  process.env.S3TOOLS_AWS_SECRET_KEY || exitNoAwsCredentials();
+config.Key = argv.key || undefined;
+config.Prefix = argv.prefix || '';
+config.Delimiter = argv.delimiter || '';
+config['rmv-all'] = argv['rmv-all'] || false;
+
+aws.config.update({
+  accessKeyId: config.accessKeyId,
+  secretAccessKey: config.secretAccessKey
+});
+var s3 = new aws.S3();
+
+debug('action', action);
+if (action === 'ls') {
+  require('../lib/ls')(s3, config, printResponse(action));
+} else if (action === 'lsv') {
+  require('../lib/lsv')(s3, config, printResponse(action));
+} else if (action === 'rm') {
+  require('../lib/rm')(s3, config, printResponse(action));
+} else if (action === 'rmv') {
+  require('../lib/rmv')(s3, config, printResponse(action));
+} else if (action === 'lb') {
+  require('../lib/lb')(s3, config, printResponse(action));
+} else {
+  console.error('do not recognize action', action);
+  process.exit(1);
+}
+
+function exitNoAwsCredentials () {
+  console.error('Need to set S3TOOLS_AWS_ACCESS_KEY and S3TOOLS_AWS_SECRET_KEY in your env.');
+  process.exit(2);
+}
+
+function printResponse (action) {
+  return function (err, data) {
+    debug('and we\'re back', action);
+    if (err) {
+      console.error(err);
+      return process.exit(3);
+    }
+    var d = [];
+    var headers = [];
+    if (action === 'ls') {
+      headers = [ 'Key', 'isPrefix' ];
+      d = data.Contents.reduce(reduceToKey('Key'), d);
+      d = data.CommonPrefixes.reduce(reduceToKey('Prefix'), d);
+      d = d.sort();
+    } else if (action === 'lsv') {
+      headers = [ 'Key', 'VersionId', 'DM', 'LastModified', 'Latest' ];
+      d = data.Versions.reduce(pushFile(), []);
+      d = data.DeleteMarkers.reduce(pushFile('DeleteMarkers'), d);
+
+      d = d.sort(function (a, b) {
+        var key1 = a[headers.indexOf('Key')].toLowerCase();
+        var key2 = b[headers.indexOf('Key')].toLowerCase();
+        if (key1 < key2) return -1;
+        else if (key1 > key2) return 1;
+        else {
+          var day1 = new Date(a[headers.indexOf('LastModified')]);
+          var day2 = new Date(b[headers.indexOf('LastModified')]);
+          if (day1 < day2) return 1;
+          else if (day1 > day2) return -1;
+          else return 0;
+        }
+      });
+    } else if (action === 'rmv' || action === 'rm') {
+      console.log('Deleted:');
+      data.Deleted.forEach(function (file) {
+        console.log(file.Key + (file.VersionId ? '#' + file.VersionId : ''));
+      });
+      console.log('Errors:');
+      data.Errors.forEach(function (file) {
+        console.log(file.Key + (file.VersionId ? '#' + file.VersionId : ''));
+        console.log('\t' + file.Message);
+      });
+    } else if (action === 'lb') {
+      headers = [ 'Name' ];
+      d = data.Buckets.map(function (b) { return [pluck(b, 'Name')]; });
+    } else {
+      console.log(action, data);
+    }
+
+    d.unshift(headers);
+    var t = table(d);
+    console.log(t);
+  };
+
+  function reduceToKey (key) {
+    return function (list, file) {
+      list.push([file[key], (key === 'Prefix' ? '✓' : '')]);
+      return list;
+    };
+  }
+  function pushFile (type) {
+    return function (list, file) {
+      var dm = '';
+      if (type === 'DeleteMarkers') dm = '✓';
+      list.push([
+        file.Key,
+        file.VersionId,
+        dm,
+        file.LastModified,
+        (file.IsLatest ? '✓' : '')
+      ]);
+      return list;
+    };
+  }
+}
