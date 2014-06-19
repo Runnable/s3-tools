@@ -18,7 +18,7 @@ Install this using `npm install -g CodeNow/s3-tools`. For this command to work, 
 
 ## Options
 
-For `ls`, `lv`, `rm`, and `dmv`, there are options that you can and need to pass along:
+For `ls`, `lv`, `rm`, and `rmv`, there are options that you can and need to pass along:
 
 - `--bucket BUCKET_NAME`: name of the bucket to work with
 - `--prefix PREFIX`: prefix if you want to specify what subset of objects you want to work with
