@@ -21,6 +21,7 @@ config.accessKeyId = argv['access-key'] ||
 config.secretAccessKey = argv['secret-key'] ||
   process.env.S3TOOLS_AWS_SECRET_KEY || exitNoAwsCredentials();
 config.Key = argv.key || undefined;
+config.VersionId = argv.version || undefined;
 config.Prefix = argv.prefix || '';
 config.Delimiter = argv.delimiter || '';
 config['rmv-all'] = argv['rmv-all'] || false;
@@ -100,7 +101,9 @@ function printResponse (action) {
       headers = [ 'Name' ];
       d = data.Buckets.map(function (b) { return [pluck(b, 'Name')]; });
     } else if (action === 'cat') {
-      console.log(data.Body.toString());
+      if (data.Body.pipe) { data.Body.pipe(process.stdout); }
+      else if (data.Body.toString) { console.log(data.Body.toString()); }
+      else { console.log(data.Body); }
     } else {
       console.log(action, data);
     }
